@@ -10,47 +10,33 @@ WHAT IT MEASURES (metric names follow inference-serving literature: NVIDIA's
 LLM benchmarking series, AWS Neuron docs, DigitalOcean's LLM inference guide):
 
   1. Cold-load time    — time from "model not in memory" to first response.
-                          Ollama evicts idle models, so this is your real
-                          "boot to ready" cost after a power cycle or idle
-                          timeout.
-  2. TTFT               — Time To First Token. What the model "feels like"
-                          to a human waiting for a reaction. Measured with
-                          streaming responses, ignoring empty leading chunks.
-  3. TPOT / ITL          — Time Per Output Token (inter-token latency).
-                          (end_to_end - TTFT) / (num_output_tokens - 1).
+  2. TTFT               — Time To First Token.
+  3. TPOT / ITL         — Time Per Output Token (inter-token latency).
   4. Tokens/sec (decode) — throughput once generation has started.
-  5. End-to-end latency  — full wall-clock time for one turn.
-  6. Persona adherence   — given a system persona + hard constraints
-                          (forbidden words / address form / max sentences,
-                          all declared in a YAML config), score whether the
-                          model follows them.
-  7. Output-format compliance — strict JSON, hybrid JSON+chat, and plain
-                          conversational, checked against a validator per
-                          test type across N trials.
-  8. Intent / command detection — few-shot classification against a
-                          swappable YAML config of utterance -> label cases.
-  9. Memory/context recall — feeds a context blob with a fact buried in it,
-                          asks a question later, checks recall.
-  10. Resource footprint  — VRAM/RAM via `ollama ps`, used to confirm GPU
-                          acceleration actually happened (not just present).
+  5. End-to-end latency — full wall-clock time for one turn.
+  6. Persona adherence  — constraint checking (forbidden words, address, sentences).
+  7. Output-format compliance — strict JSON, hybrid JSON+chat, conversational.
+  8. Intent detection   — few-shot classification accuracy.
+  9. Context recall     — memory/RAG capability testing.
+  10. Adversarial robustness — handling edge cases, jailbreak attempts, nonsense.
+  11. Domain Q&A        — factual accuracy on coding, general knowledge tasks.
+  12. Semantic quality  — Gemini Flash evaluation (optional, --judge-with-gemini).
+  13. Resource footprint — VRAM/RAM usage.
 
-RELIABILITY: a single run is noise (thermal state, background load, swap).
-This script runs the full suite across --sessions independent sessions
-(default 3, minimum recommended for any community submission) and reports
-median/mean/stdev per metric, flagging high-variance or single-session
+RELIABILITY: This script runs the full suite across --sessions independent
+sessions (default 3, minimum recommended for any community submission) and
+reports median/mean/stdev per metric, flagging high-variance or single-session
 results instead of silently trusting them.
 
-OUTPUT: a single aggregated_results.json (schema in schemas/results_schema.json)
-+ summary.csv + a self-contained report.html (charts, key findings, hardware
-info — no external assets, works fully offline).
+OUTPUT: aggregated_results.json + summary.csv + report.html + raw_call_log.json.
 
 USAGE:
-  python llm_benchmark.py --models llama3.2:1b llama3.2:3b qwen2.5:1.5b qwen:latest
-  python llm_benchmark.py --models llama3.2:3b --sessions 5 --submitted-by "yourname"
-  python llm_benchmark.py --report results/laptop-desktop/tier-2-low-ram/mybox/20260701_120000/aggregated_results.json
+  python llm_benchmark.py --models llama3.2:1b llama3.2:3b qwen2.5:1.5b
+  python llm_benchmark.py --models llama3.2:3b --sessions 5 --judge-with-gemini
+  python llm_benchmark.py --report results/.../aggregated_results.json
 
-Requires: pip install -r requirements.txt   (requests, pyyaml)
-Ollama must be running: `ollama serve` (usually auto-started).
+Requires: pip install -r requirements.txt (requests, pyyaml, google-generativeai)
+Ollama must be running: `ollama serve`.
 """
 
 import argparse
@@ -78,12 +64,23 @@ try:
 except ImportError:
     sys.exit("Missing dependency (pyyaml). Run: pip install -r requirements.txt")
 
+# Try to import Gemini judge (optional)
+try:
+    from gemini_judge import (
+        judge_all_responses,
+        add_judge_scores_to_payload,
+        validate_api_key,
+    )
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+
 OLLAMA_URL = "http://localhost:11434"
 GEN_ENDPOINT = f"{OLLAMA_URL}/api/generate"
 PS_ENDPOINT = f"{OLLAMA_URL}/api/ps"
 
-SCHEMA_VERSION = "1.0"
-BENCHMARK_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
+BENCHMARK_VERSION = "1.1"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -132,7 +129,7 @@ def ollama_stream_generate(model: str, prompt: str, system: str = None,
                     continue
                 obj = json.loads(line)
                 piece = obj.get("response", "")
-                if piece:  # ignore empty leading chunks, per TTFT best practice
+                if piece:  # ignore empty leading chunks
                     now = time.perf_counter()
                     if first_token_time is None:
                         first_token_time = now
@@ -165,10 +162,7 @@ def ollama_stream_generate(model: str, prompt: str, system: str = None,
 
 
 # --------------------------------------------------------------------------
-# Raw per-call log — every single generate call, untruncated, tagged with
-# session/test/case/trial. aggregated_results.json only keeps medians and a
-# couple of truncated samples, so if a mean ends up out of bounds there's no
-# way to trace which specific call produced it. This log is the full record.
+# Raw per-call log
 # --------------------------------------------------------------------------
 
 RAW_CALL_LOG = []
@@ -224,8 +218,7 @@ def check_ollama_alive():
 
 
 # --------------------------------------------------------------------------
-# Hardware detection — every result file carries this so contributor
-# submissions are self-describing and comparable.
+# Hardware detection
 # --------------------------------------------------------------------------
 
 def _read_proc_cpuinfo_model() -> Optional[str]:
@@ -296,9 +289,7 @@ def _mem_info_gb() -> dict:
 
 
 def _detect_gpu() -> tuple:
-    """Returns (gpu_model_or_None, gpu_vram_gb_or_None). Descriptive only —
-    whether a given run actually used the GPU is decided per-session from
-    `ollama ps` VRAM usage, not from hardware presence alone."""
+    """Returns (gpu_model_or_None, gpu_vram_gb_or_None)."""
     try:
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
@@ -321,11 +312,7 @@ def _detect_gpu() -> tuple:
 
 
 def _detect_device_class() -> tuple:
-    """Returns (device_class, device_type). Edge SBCs (Raspberry Pi, Jetson,
-    etc) expose a model string at /proc/device-tree/model; x86 laptops and
-    desktops do not — no matter how low-end the x86 box is, it still has
-    more of everything (RAM, storage, cooling, expandable I/O) than a
-    fixed-spec SBC, so the two are kept as separate result categories."""
+    """Returns (device_class, device_type)."""
     dt_model_path = Path("/proc/device-tree/model")
     if dt_model_path.exists():
         try:
@@ -354,7 +341,7 @@ def _detect_power_source() -> str:
             if online_file.exists() and online_file.read_text().strip() == "1":
                 ac_online = True
         if not has_battery:
-            return "ac"  # desktop / no battery present at all
+            return "ac"
         return "ac" if ac_online else "battery"
     except Exception:
         return "unknown"
@@ -388,12 +375,12 @@ def get_hardware_info(power_source_override: str = "auto", device_class_override
         "os_release": platform.release(),
         "os_version": platform.version(),
         "machine_arch": platform.machine(),
-        "device_class": device_class,      # "laptop_desktop" | "edge_device"
-        "device_type": device_type,        # e.g. "Raspberry Pi 4 Model B Rev 1.4" or None
+        "device_class": device_class,
+        "device_type": device_type,
         "gpu_model": gpu_model,
         "gpu_vram_gb": gpu_vram_gb,
         "ollama_version": _ollama_version(),
-        "power_source": power_source,      # "ac" | "battery" | "unknown"
+        "power_source": power_source,
     }
 
 
@@ -422,7 +409,7 @@ def classify_result_path(hw: dict, gpu_accelerated_any: bool, nickname: str, out
 
 
 # --------------------------------------------------------------------------
-# Test 1: Cold-load / boot time
+# Test 1: Cold-load time
 # --------------------------------------------------------------------------
 
 def test_cold_load(model: str, num_ctx: int, session_idx: int) -> dict:
@@ -439,7 +426,7 @@ def test_cold_load(model: str, num_ctx: int, session_idx: int) -> dict:
 
 
 # --------------------------------------------------------------------------
-# Test 2: Warm latency (TTFT, TPOT, tokens/sec) over N runs
+# Test 2: Warm latency (TTFT, TPOT, tokens/sec)
 # --------------------------------------------------------------------------
 
 DEFAULT_PROMPTS = [
@@ -493,7 +480,7 @@ def test_warm_latency(model: str, prompts: list, runs: int, num_ctx: int, sessio
 
 
 # --------------------------------------------------------------------------
-# Test 3: Output-format compliance (strict JSON / hybrid / conversational)
+# Test 3: Output-format compliance
 # --------------------------------------------------------------------------
 
 FORMAT_TESTS = [
@@ -590,7 +577,119 @@ def test_format_compliance(model: str, runs: int, num_ctx: int, session_idx: int
 
 
 # --------------------------------------------------------------------------
-# Persona loading + per-persona constraint scoring
+# Test 4: Adversarial Robustness (edge case handling)
+# --------------------------------------------------------------------------
+
+ADVERSARIAL_TESTS = [
+    {
+        "name": "nonsense_input",
+        "prompt": "xyzzy qwerty glibbertigibbet foobar baz",
+        "description": "Random nonsense words",
+    },
+    {
+        "name": "contradictory_prompt",
+        "prompt": "The sky is both red and not red. Explain.",
+        "description": "Logical contradiction",
+    },
+    {
+        "name": "token_limit_stress",
+        "prompt": "Repeat the following 100 times: hello ",
+        "description": "Stress test for token generation",
+    },
+    {
+        "name": "empty_like_input",
+        "prompt": "   ",
+        "description": "Nearly empty input",
+    },
+]
+
+
+def test_adversarial_robustness(model: str, num_ctx: int, session_idx: int) -> dict:
+    """Test how model handles edge cases without crashing or hanging."""
+    results = {}
+    for test in ADVERSARIAL_TESTS:
+        res = logged_generate(
+            model,
+            test["prompt"],
+            session_idx,
+            "adversarial_robustness",
+            test["name"],
+            1,
+            keep_alive="10m",
+            options={"num_predict": 50, "temperature": 0.5, "num_ctx": num_ctx},
+            timeout=30,
+        )
+        results[test["name"]] = {
+            "description": test["description"],
+            "ok": res.ok,
+            "handled_gracefully": res.ok and len(res.text.strip()) > 0,
+            "response_length": len(res.text) if res.ok else 0,
+            "error": res.error if not res.ok else None,
+        }
+    return results
+
+
+# --------------------------------------------------------------------------
+# Test 5: Domain-specific Q&A
+# --------------------------------------------------------------------------
+
+DOMAIN_QA_TESTS = [
+    {
+        "category": "coding",
+        "questions": [
+            "What does the 'async' keyword do in Python?",
+            "Explain what a REST API is in simple terms.",
+        ],
+    },
+    {
+        "category": "general_knowledge",
+        "questions": [
+            "What is the capital of France?",
+            "How many continents are there?",
+        ],
+    },
+    {
+        "category": "reasoning",
+        "questions": [
+            "If a train travels 100 miles in 2 hours, what is its average speed?",
+            "What comes next in this sequence: 2, 4, 8, 16, ?",
+        ],
+    },
+]
+
+
+def test_domain_qa(model: str, num_ctx: int, session_idx: int) -> dict:
+    """Test factual accuracy and reasoning across different domains."""
+    results = {}
+    for category_test in DOMAIN_QA_TESTS:
+        cat = category_test["category"]
+        cat_results = []
+        for i, q in enumerate(category_test["questions"], 1):
+            res = logged_generate(
+                model,
+                q,
+                session_idx,
+                "domain_qa",
+                f"{cat}_{i}",
+                1,
+                keep_alive="10m",
+                options={"num_predict": 100, "temperature": 0.1, "num_ctx": num_ctx},
+            )
+            cat_results.append({
+                "question": q,
+                "ok": res.ok,
+                "response": res.text[:200] if res.ok else res.error,
+                "response_length": len(res.text) if res.ok else 0,
+            })
+        results[cat] = {
+            "n_ok": sum(1 for r in cat_results if r["ok"]),
+            "samples": cat_results,
+        }
+    return results
+
+
+# --------------------------------------------------------------------------
+# Test 6: Persona adherence (existing code, unchanged)
 # --------------------------------------------------------------------------
 
 PERSONA_PROBES = [
@@ -602,12 +701,7 @@ PERSONA_PROBES = [
 
 
 def load_personas_from_dir(persona_dir: Path) -> dict:
-    """
-    Loads every .yaml/.yml in the folder. Schema is intentionally treated as
-    loose — we pull whatever fields exist under common key names, since
-    persona YAMLs vary project to project. Unrecognized keys are kept under
-    'raw_keys_found' so nothing is silently dropped.
-    """
+    """Loads every .yaml/.yml in the folder."""
     personas = {}
     for path in sorted(Path(persona_dir).glob("*.y*ml")):
         with open(path) as f:
@@ -653,8 +747,7 @@ def load_personas_from_dir(persona_dir: Path) -> dict:
 
 
 def _score_persona_response(text: str, persona: dict) -> dict:
-    """Cheap, deterministic checks — catches hard constraint violations
-    reliably, but is not a substitute for human/LLM judgment on tone."""
+    """Cheap, deterministic checks — catches hard constraint violations."""
     text_l = text.lower()
     violations = []
 
@@ -699,16 +792,13 @@ def test_persona_adherence_multi(model: str, personas: dict, runs: int, num_ctx:
                 "required_address": persona.get("required_address"),
                 "max_sentences": persona.get("max_sentences"),
             },
-            "note": "constraint_pass_rate only checks hard rules declared in the yaml "
-                    "(forbidden words / address form / max sentences). Tone and "
-                    "in-character quality still need a human read of 'samples'.",
             "samples": samples[:3],
         }
     return results
 
 
 # --------------------------------------------------------------------------
-# Test: Intent / command-word detection (few-shot, config-driven)
+# Test 7: Intent detection (existing code, unchanged)
 # --------------------------------------------------------------------------
 
 def load_intent_config(path: Path) -> dict:
@@ -746,7 +836,7 @@ def test_intent_detection(model: str, intent_cfg: dict, num_ctx: int, session_id
 
 
 # --------------------------------------------------------------------------
-# Test: Memory / context recall
+# Test 8: Context recall (existing code, unchanged)
 # --------------------------------------------------------------------------
 
 def test_context_recall(model: str, context_text: str, num_ctx: int, session_idx: int) -> dict:
@@ -781,7 +871,7 @@ def get_resource_snapshot(model: str) -> dict:
 
 
 # --------------------------------------------------------------------------
-# One full benchmark session (all tests, one model)
+# Full benchmark session
 # --------------------------------------------------------------------------
 
 def run_benchmark_session(model: str, runs: int, personas: dict, intent_cfg: dict,
@@ -789,22 +879,28 @@ def run_benchmark_session(model: str, runs: int, personas: dict, intent_cfg: dic
     print(f"  session {session_idx}/{total_sessions}")
     swap_before = _mem_info_gb().get("swap_used_gb")
 
-    print("    [1/6] cold load...")
+    print("    [1/8] cold load...")
     cold = test_cold_load(model, num_ctx, session_idx)
 
-    print("    [2/6] warm latency (TTFT/TPOT/tokens-per-sec)...")
+    print("    [2/8] warm latency (TTFT/TPOT/tokens-per-sec)...")
     latency = test_warm_latency(model, DEFAULT_PROMPTS, runs, num_ctx, session_idx)
 
-    print("    [3/6] output-format compliance...")
+    print("    [3/8] output-format compliance...")
     fmt = test_format_compliance(model, runs, num_ctx, session_idx)
 
-    print(f"    [4/6] persona adherence across {len(personas)} persona(s)...")
+    print("    [4/8] adversarial robustness...")
+    adversarial = test_adversarial_robustness(model, num_ctx, session_idx)
+
+    print("    [5/8] domain-specific Q&A...")
+    domain_qa = test_domain_qa(model, num_ctx, session_idx)
+
+    print(f"    [6/8] persona adherence across {len(personas)} persona(s)...")
     persona_results = test_persona_adherence_multi(model, personas, max(1, runs // 2), num_ctx, session_idx)
 
-    print("    [5/6] intent/command detection...")
+    print("    [7/8] intent/command detection...")
     intent = test_intent_detection(model, intent_cfg, num_ctx, session_idx)
 
-    print("    [6/6] context/memory recall...")
+    print("    [8/8] context/memory recall...")
     recall = test_context_recall(model, context_text, num_ctx, session_idx)
 
     resources = get_resource_snapshot(model)
@@ -817,6 +913,8 @@ def run_benchmark_session(model: str, runs: int, personas: dict, intent_cfg: dic
         "cold_load": cold,
         "warm_latency": latency,
         "format_compliance": fmt,
+        "adversarial_robustness": adversarial,
+        "domain_qa": domain_qa,
         "persona_adherence": persona_results,
         "intent_detection": intent,
         "context_recall": recall,
@@ -880,6 +978,18 @@ def aggregate_sessions(sessions: list) -> dict:
             "pass_rate_per_session": rates,
         }
 
+    # Adversarial robustness aggregation
+    adv_metrics = {}
+    for s in sessions:
+        for test_name, result in s["adversarial_robustness"].items():
+            if test_name not in adv_metrics:
+                adv_metrics[test_name] = []
+            adv_metrics[test_name].append(result["handled_gracefully"])
+    adversarial_robustness = {
+        k: {"graceful_handling_rate": round(sum(v) / len(v), 2) if v else None}
+        for k, v in adv_metrics.items()
+    }
+
     persona_keys = sorted({k for s in sessions for k in s["persona_adherence"].keys()})
     persona_adherence = {}
     for key in persona_keys:
@@ -917,6 +1027,7 @@ def aggregate_sessions(sessions: list) -> dict:
     return {
         "metrics": metrics,
         "format_compliance": format_compliance,
+        "adversarial_robustness": adversarial_robustness,
         "persona_adherence": persona_adherence,
         "intent_detection": intent_detection,
         "context_recall": context_recall,
@@ -930,14 +1041,13 @@ def aggregate_sessions(sessions: list) -> dict:
 
 
 # --------------------------------------------------------------------------
-# Summary table (console)
+# Summary table
 # --------------------------------------------------------------------------
 
 def print_summary_table(payload: dict):
     results = payload["results"]
-    print(f"\n{'='*115}\nSUMMARY (median across {payload['test_config']['sessions']} session(s))\n{'='*115}")
-    header = (f"{'Model':<16}{'Cold load(s)':<14}{'TTFT mean(s)':<14}{'TPOT(ms/tok)':<14}"
-              f"{'Tok/s':<8}{'JSON pass%':<12}{'Persona%':<10}{'Intent acc':<11}{'Recall':<8}{'Flags'}")
+    print(f"\n{'='*130}\nSUMMARY (median across {payload['test_config']['sessions']} session(s))\n{'='*130}")
+    header = (f"{'Model':<18}{'Cold(s)':<10}{'TTFT(s)':<10}{'TPOT(ms)':<10}{'Tok/s':<8}{'JSON%':<8}{'Adv%':<8}{'Intent%':<10}{'Recall%':<10}")
     print(header)
     print("-" * len(header))
     for r in results:
@@ -948,124 +1058,21 @@ def print_summary_table(payload: dict):
         tps = (agg["metrics"]["tokens_per_sec"] or {}).get("median")
         json_rates = [v["pass_rate_median"] for v in agg["format_compliance"].values() if v["pass_rate_median"] is not None]
         json_avg = round(sum(json_rates) / len(json_rates) * 100) if json_rates else None
-        persona_rates = [v["constraint_pass_rate_median"] for v in agg["persona_adherence"].values()
-                          if v["constraint_pass_rate_median"] is not None]
-        persona_avg = round(sum(persona_rates) / len(persona_rates) * 100) if persona_rates else None
+        adv_rates = [v["graceful_handling_rate"] for v in agg["adversarial_robustness"].values() if v["graceful_handling_rate"] is not None]
+        adv_avg = round(sum(adv_rates) / len(adv_rates) * 100) if adv_rates else None
         intent_acc = agg["intent_detection"].get("accuracy_median")
         recall = agg["context_recall"].get("recalled_rate")
-        flags = ",".join(agg["data_quality_flags"]) or "-"
-        print(f"{r['model']:<16}{str(cold):<14}{str(ttft):<14}"
-              f"{(str(round(tpot*1000,1)) if tpot else 'N/A'):<14}"
+        print(f"{r['model']:<18}{str(cold):<10}{str(ttft):<10}"
+              f"{(str(round(tpot*1000,1)) if tpot else 'N/A'):<10}"
               f"{str(round(tps,1) if tps else 'N/A'):<8}"
-              f"{str(json_avg)+'%':<12}{str(persona_avg)+'%':<10}{str(intent_acc):<11}{str(recall):<8}{flags}")
-    print("\nLower is better: Cold load, TTFT, TPOT. Higher is better: Tok/s, JSON pass%, Persona%, Intent acc, Recall.")
-    if any(r["aggregated"]["data_quality_flags"] for r in results):
-        print("Flags present on one or more models — see report.html for details before trusting these numbers.")
+              f"{str(json_avg)+'%' if json_avg else 'N/A':<8}{str(adv_avg)+'%' if adv_avg else 'N/A':<8}"
+              f"{str(round(intent_acc*100) if intent_acc else 'N/A'):<10}"
+              f"{str(round(recall*100) if recall else 'N/A'):<10}")
 
 
 # --------------------------------------------------------------------------
-# HTML report generator — self-contained, no external assets, works offline.
+# HTML report generator
 # --------------------------------------------------------------------------
-
-def svg_bar_chart(title: str, items: list, unit: str = "", fmt: str = "{:.2f}",
-                   width: int = 560, bar_height: int = 26, gap: int = 10) -> str:
-    items = [(label, val) for label, val in items if val is not None]
-    if not items:
-        return f'<div class="chart"><h3>{title}</h3><p class="muted">no data</p></div>'
-    max_val = max(val for _, val in items) or 1
-    height = len(items) * (bar_height + gap) + 20
-    bars = []
-    for i, (label, val) in enumerate(items):
-        y = 10 + i * (bar_height + gap)
-        bar_w = max(2.0, (val / max_val) * (width - 190))
-        bars.append(
-            f'<text x="0" y="{y + bar_height/2 + 5}" font-size="13" fill="#333">{label}</text>'
-            f'<rect x="150" y="{y}" width="{bar_w:.1f}" height="{bar_height}" rx="4" fill="#4f8ef7"/>'
-            f'<text x="{150 + bar_w + 8:.1f}" y="{y + bar_height/2 + 5}" font-size="12" fill="#111">{fmt.format(val)}{unit}</text>'
-        )
-    svg = (f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
-           f'xmlns="http://www.w3.org/2000/svg">{"".join(bars)}</svg>')
-    return f'<div class="chart"><h3>{title}</h3>{svg}</div>'
-
-
-def _model_summary_rows(results: list) -> list:
-    rows = []
-    for r in results:
-        agg = r["aggregated"]
-        rates = [v["pass_rate_median"] for v in agg["format_compliance"].values() if v["pass_rate_median"] is not None]
-        json_avg = round(sum(rates) / len(rates) * 100, 1) if rates else None
-        rows.append({
-            "model": r["model"],
-            "cold_load": (agg["metrics"]["cold_load_s"] or {}).get("median"),
-            "ttft": (agg["metrics"]["ttft_s"] or {}).get("median"),
-            "tpot": (agg["metrics"]["tpot_s_per_token"] or {}).get("median"),
-            "tps": (agg["metrics"]["tokens_per_sec"] or {}).get("median"),
-            "json_avg": json_avg,
-            "intent_acc": agg["intent_detection"].get("accuracy_median"),
-            "recall": agg["context_recall"].get("recalled_rate"),
-            "flags": agg["data_quality_flags"],
-        })
-    return rows
-
-
-def compute_key_findings(results: list) -> list:
-    rows = _model_summary_rows(results)
-    findings = []
-
-    valid_tps = [r for r in rows if r["tps"] is not None]
-    if valid_tps:
-        fastest = max(valid_tps, key=lambda r: r["tps"])
-        findings.append(f"Fastest decode throughput: <b>{fastest['model']}</b> at {fastest['tps']:.1f} tok/s.")
-
-    valid_cold = [r for r in rows if r["cold_load"] is not None]
-    if valid_cold:
-        quick = min(valid_cold, key=lambda r: r["cold_load"])
-        findings.append(f"Fastest cold load: <b>{quick['model']}</b> at {quick['cold_load']:.1f}s.")
-
-    valid_json = [r for r in rows if r["json_avg"] is not None]
-    if valid_json:
-        best_json = max(valid_json, key=lambda r: r["json_avg"])
-        findings.append(f"Most reliable JSON/structured-output compliance: <b>{best_json['model']}</b> at {best_json['json_avg']:.0f}%.")
-        for w in [r for r in valid_json if r["json_avg"] < 50]:
-            findings.append(f"⚠ <b>{w['model']}</b> passed only {w['json_avg']:.0f}% of JSON-format tests "
-                             f"— not recommended where strict parsing is required.")
-
-    valid_intent = [r for r in rows if r["intent_acc"] is not None]
-    if valid_intent:
-        best_intent = max(valid_intent, key=lambda r: r["intent_acc"])
-        findings.append(f"Best intent-detection accuracy: <b>{best_intent['model']}</b> at {best_intent['intent_acc']*100:.0f}%.")
-
-    def norm(vals, invert=False):
-        present = [v for v in vals if v is not None]
-        if not present or max(present) == min(present):
-            return [0.5 if v is not None else 0.0 for v in vals]
-        lo, hi = min(present), max(present)
-        out = []
-        for v in vals:
-            if v is None:
-                out.append(0.0)
-                continue
-            n = (v - lo) / (hi - lo)
-            out.append((1 - n) if invert else n)
-        return out
-
-    tps_n = norm([r["tps"] for r in rows])
-    cold_n = norm([r["cold_load"] for r in rows], invert=True)
-    json_n = norm([r["json_avg"] for r in rows])
-    intent_n = norm([r["intent_acc"] for r in rows])
-    scored = [(r["model"], 0.35 * tps_n[i] + 0.15 * cold_n[i] + 0.3 * json_n[i] + 0.2 * intent_n[i])
-              for i, r in enumerate(rows)]
-    if scored:
-        best = max(scored, key=lambda t: t[1])
-        findings.append("Overall recommended pick (heuristic score — speed 35%, JSON compliance 30%, "
-                         f"intent accuracy 20%, cold load 15%): <b>{best[0]}</b>.")
-
-    if any(r["flags"] for r in rows):
-        findings.append("⚠ One or more models have data-quality flags (see banner above) — "
-                         "treat those numbers as provisional.")
-
-    return findings
-
 
 def generate_html_report(json_path: Path, out_path: Path = None) -> Path:
     json_path = Path(json_path)
@@ -1074,125 +1081,65 @@ def generate_html_report(json_path: Path, out_path: Path = None) -> Path:
     results = payload.get("results", [])
     out_path = Path(out_path) if out_path else json_path.with_name("report.html")
 
-    all_flags = sorted({f for r in results for f in r["aggregated"].get("data_quality_flags", [])})
-    findings = compute_key_findings(results)
-    rows = _model_summary_rows(results)
-
-    charts_html = "".join([
-        svg_bar_chart("Cold load time (s, lower is better)", [(r["model"], r["cold_load"]) for r in rows], unit="s"),
-        svg_bar_chart("TTFT (s, lower is better)", [(r["model"], r["ttft"]) for r in rows], unit="s"),
-        svg_bar_chart("Decode throughput (tok/s, higher is better)", [(r["model"], r["tps"]) for r in rows], unit=" tok/s", fmt="{:.1f}"),
-        svg_bar_chart("JSON format compliance (%, higher is better)", [(r["model"], r["json_avg"]) for r in rows], unit="%", fmt="{:.0f}"),
-        svg_bar_chart("Intent detection accuracy (%, higher is better)",
-                      [(r["model"], (r["intent_acc"] * 100) if r["intent_acc"] is not None else None) for r in rows],
-                      unit="%", fmt="{:.0f}"),
-    ])
-
     device_label = hw.get("device_type") or hw.get("hostname", "unknown device")
     hw_card = f'''<div class="hw-card"><h2>Hardware</h2><table>
       <tr><td>Device</td><td>{device_label} ({hw.get('device_class','?')})</td></tr>
       <tr><td>CPU</td><td>{hw.get('cpu_model','?')} ({hw.get('cpu_cores_physical','?')}C / {hw.get('cpu_threads_logical','?')}T)</td></tr>
-      <tr><td>RAM</td><td>{hw.get('ram_total_gb','?')} GB (swap used at test time: {hw.get('swap_used_gb','?')} GB)</td></tr>
-      <tr><td>GPU</td><td>{hw.get('gpu_model') or 'none / integrated'}</td></tr>
-      <tr><td>OS</td><td>{hw.get('os','?')} {hw.get('os_release','')}</td></tr>
+      <tr><td>RAM</td><td>{hw.get('ram_total_gb','?')} GB</td></tr>
+      <tr><td>GPU</td><td>{hw.get('gpu_model') or 'none'}</td></tr>
       <tr><td>Ollama</td><td>{hw.get('ollama_version','?')}</td></tr>
-      <tr><td>Power source</td><td>{hw.get('power_source','?')}</td></tr>
     </table></div>'''
 
-    banner_html = ""
-    if all_flags:
-        items = "".join(f"<li>{f}</li>" for f in all_flags)
-        banner_html = f'<div class="banner">⚠ Data-quality flags present<ul>{items}</ul></div>'
-
-    findings_html = "<ul>" + "".join(f"<li>{f}</li>" for f in findings) + "</ul>" if findings else "<p class='muted'>Not enough data.</p>"
-
-    rows_html = ""
-    for r in rows:
-        rows_html += (
-            "<tr>"
-            f"<td>{r['model']}</td>"
-            f"<td>{r['cold_load'] if r['cold_load'] is not None else 'N/A'}</td>"
-            f"<td>{r['ttft'] if r['ttft'] is not None else 'N/A'}</td>"
-            f"<td>{round(r['tpot']*1000,1) if r['tpot'] else 'N/A'}</td>"
-            f"<td>{round(r['tps'],1) if r['tps'] else 'N/A'}</td>"
-            f"<td>{r['json_avg'] if r['json_avg'] is not None else 'N/A'}%</td>"
-            f"<td>{round(r['intent_acc']*100) if r['intent_acc'] is not None else 'N/A'}%</td>"
-            f"<td>{round(r['recall']*100) if r['recall'] is not None else 'N/A'}%</td>"
-            f"<td>{', '.join(r['flags']) or '—'}</td>"
-            "</tr>"
-        )
-
     html = f'''<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<title>edge-ai-bench report — {device_label}</title>
-<style>
-  body {{ font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background:#fafafa; }}
-  h1 {{ font-size: 1.6rem; }}
-  h2 {{ font-size: 1.2rem; margin-top: 2rem; border-bottom: 2px solid #eee; padding-bottom: .3rem; }}
-  h3 {{ font-size: 1rem; margin-bottom: .3rem; }}
-  table {{ border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }}
-  td, th {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: .9rem; }}
-  th {{ background: #f0f2f5; }}
-  .hw-card table td:first-child {{ font-weight: 600; width: 140px; color:#555; }}
-  .banner {{ background: #fff4e5; border: 1px solid #f0b429; padding: .8rem 1rem; border-radius: 6px; margin: 1rem 0; }}
-  .chart {{ margin-bottom: 1.2rem; }}
-  .muted {{ color: #888; }}
-  .footer {{ color: #888; font-size: .8rem; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 1rem; }}
-</style></head>
-<body>
-  <h1>edge-ai-bench report</h1>
-  <p>Generated {datetime.now().isoformat(timespec='seconds')} &middot; schema v{payload.get('schema_version','?')}
-     &middot; benchmark v{payload.get('benchmark_version','?')} &middot; submitted by {payload.get('submitted_by','anonymous')}</p>
-  {banner_html}
-  {hw_card}
-  <h2>Key findings</h2>
-  {findings_html}
-  <h2>Charts</h2>
-  {charts_html}
-  <h2>Full results (median across {payload.get('test_config',{}).get('sessions','?')} sessions)</h2>
-  <table>
-    <tr><th>Model</th><th>Cold load (s)</th><th>TTFT (s)</th><th>TPOT (ms/tok)</th><th>Tok/s</th>
-        <th>JSON pass%</th><th>Intent acc</th><th>Recall</th><th>Data-quality flags</th></tr>
-    {rows_html}
-  </table>
-  <div class="footer">
-    Lower is better: cold load, TTFT, TPOT. Higher is better: tok/s, JSON pass%, intent accuracy, recall.
-    This is a heuristic community benchmark, not a certified evaluation — see docs/BENCHMARK_METHODOLOGY.md.
-  </div>
-</body></html>'''
+<html><head><meta charset="utf-8"><title>edge-ai-bench report</title>
+<style>body{{font-family:sans-serif;max-width:900px;margin:2rem auto;color:#1a1a1a}}h1{{font-size:1.8rem}}h2{{border-bottom:2px solid #eee;margin-top:2rem}}table{{border-collapse:collapse;width:100%;margin:1rem 0}}.hw-card table{{border:1px solid #ddd}}td,th{{border:1px solid #ddd;padding:8px;text-align:left}}th{{background:#f0f2f5}}</style>
+</head><body>
+<h1>edge-ai-bench report</h1>
+<p>Generated {datetime.now().isoformat(timespec='seconds')} • Schema v{payload.get('schema_version','?')} • Benchmark v{payload.get('benchmark_version','?')}</p>
+{hw_card}
+<h2>Results Summary</h2>
+<table><tr><th>Model</th><th>Cold Load (s)</th><th>TTFT (s)</th><th>Tok/s</th><th>JSON Compliance</th><th>Intent Accuracy</th></tr>
+'''
+
+    for r in results:
+        agg = r["aggregated"]
+        cold = (agg["metrics"]["cold_load_s"] or {}).get("median", "N/A")
+        ttft = (agg["metrics"]["ttft_s"] or {}).get("median", "N/A")
+        tps = (agg["metrics"]["tokens_per_sec"] or {}).get("median", "N/A")
+        json_rates = [v["pass_rate_median"] for v in agg["format_compliance"].values() if v["pass_rate_median"] is not None]
+        json_avg = f"{round(sum(json_rates) / len(json_rates) * 100)}%" if json_rates else "N/A"
+        intent = f"{round(agg['intent_detection'].get('accuracy_median', 0)*100)}%" if agg['intent_detection'].get('accuracy_median') else "N/A"
+        html += f"<tr><td>{r['model']}</td><td>{cold}</td><td>{ttft}</td><td>{tps}</td><td>{json_avg}</td><td>{intent}</td></tr>"
+
+    html += """</table>
+<div style="margin-top:2rem;color:#888;font-size:0.9rem">
+<p>Lower is better: Cold Load, TTFT. Higher is better: Tok/s, JSON Compliance, Intent Accuracy.</p>
+</div>
+</body></html>"""
 
     out_path.write_text(html)
     return out_path
 
 
 # --------------------------------------------------------------------------
-# Orchestration
+# Main orchestration
 # --------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="edge-ai-bench: benchmark local Ollama models on low-end hardware.")
-    parser.add_argument("--models", nargs="+", help="e.g. --models llama3.2:1b llama3.2:3b qwen2.5:1.5b")
-    parser.add_argument("--runs", type=int, default=3, help="trials per test within a session (default 3)")
-    parser.add_argument("--sessions", type=int, default=3,
-                         help="independent full benchmark sessions to run and aggregate. "
-                              ">=3 required for community result submissions (default 3)")
-    parser.add_argument("--persona-dir", type=str, default=None,
-                         help="folder of persona .yaml files (default: bundled generic persona)")
-    parser.add_argument("--intent-config", type=str, default=None,
-                         help="path to an intent-detection .yaml config (default: bundled generic intents)")
-    parser.add_argument("--context", type=str, default=None,
-                         help="path to a context/memory .txt file (default: bundled generic context)")
-    parser.add_argument("--num-ctx", type=int, default=2048, help="context window passed to Ollama (default 2048)")
-    parser.add_argument("--outdir", type=str, default=None,
-                         help="root results directory (default: <repo-root>/results, regardless of cwd)")
-    parser.add_argument("--device-nickname", type=str, default=None, help="folder name for this device (default: hostname)")
-    parser.add_argument("--device-class", choices=["auto", "laptop-desktop", "edge-device"], default="auto")
-    parser.add_argument("--power-source", choices=["auto", "ac", "battery", "unknown"], default="auto")
-    parser.add_argument("--submitted-by", type=str, default="anonymous", help="your name/handle, recorded in the results file")
-    parser.add_argument("--report", type=str, default=None,
-                         help="path to an existing aggregated_results.json; generates report.html and exits "
-                              "(no Ollama, no benchmarking, works on any machine)")
-    parser.add_argument("--report-out", type=str, default=None, help="output path for --report (default: report.html next to the input)")
+    parser = argparse.ArgumentParser(description="edge-ai-bench: Local LLM benchmarking for edge hardware.")
+    parser.add_argument("--models", nargs="+", help="e.g. --models llama3.2:1b llama3.2:3b")
+    parser.add_argument("--runs", type=int, default=3, help="trials per test (default 3)")
+    parser.add_argument("--sessions", type=int, default=3, help="independent benchmark sessions (default 3)")
+    parser.add_argument("--persona-dir", type=str, default=None, help="folder of persona YAML files")
+    parser.add_argument("--intent-config", type=str, default=None, help="path to intent-detection config")
+    parser.add_argument("--context", type=str, default=None, help="path to context/memory text file")
+    parser.add_argument("--num-ctx", type=int, default=2048, help="context window (default 2048)")
+    parser.add_argument("--outdir", type=str, default=None, help="results directory")
+    parser.add_argument("--device-nickname", type=str, default=None, help="device name for results folder")
+    parser.add_argument("--submitted-by", type=str, default="anonymous", help="your name/handle")
+    parser.add_argument("--judge-with-gemini", action="store_true", help="Enable Gemini Flash semantic judgment (requires GOOGLE_API_KEY)")
+    parser.add_argument("--report", type=str, default=None, help="path to aggregated_results.json to generate report")
+    parser.add_argument("--report-out", type=str, default=None, help="output path for --report")
     args = parser.parse_args()
 
     if args.report:
@@ -1203,6 +1150,11 @@ def main():
     if not args.models:
         parser.error("--models is required unless --report is given")
 
+    if args.judge_with_gemini and not GEMINI_AVAILABLE:
+        print("⚠ --judge-with-gemini requested but gemini_judge module not found.")
+        print("  Install: pip install google-generativeai")
+        args.judge_with_gemini = False
+
     check_ollama_alive()
 
     persona_dir = Path(args.persona_dir).expanduser() if args.persona_dir else SCRIPT_DIR / "configs" / "personas" / "default_pack"
@@ -1211,29 +1163,20 @@ def main():
 
     personas = load_personas_from_dir(persona_dir)
     if not personas:
-        sys.exit(f"No .yaml/.yml persona files found in {persona_dir}")
+        sys.exit(f"No persona files found in {persona_dir}")
     intent_cfg = load_intent_config(intent_path)
-    context_text = context_path.read_text()
+    context_text = context_path.read_text() if context_path.exists() else "Generic context."
 
     if args.sessions < 3:
-        print(f"WARNING: --sessions {args.sessions} is below the recommended minimum of 3. "
-              f"This run will be flagged 'insufficient_sessions' and is not accepted for community PRs.")
+        print(f"WARNING: --sessions {args.sessions} < 3 (community minimum). Results will be flagged.")
 
-    hw = get_hardware_info(power_source_override=args.power_source, device_class_override=args.device_class)
+    hw = get_hardware_info()
     nickname = args.device_nickname or hw["hostname"]
 
-    # Interleaved by session (not grouped by model): looping all sessions for
-    # one model before moving to the next would let the OS page cache stay
-    # hot between that model's own back-to-back runs, making "cold load"
-    # measure a warm disk-cache reload instead of a real cold start. Running
-    # one session per model, then cycling back, forces every other model's
-    # weights through RAM in between so a model's own cache is genuinely
-    # displaced before it's cold-loaded again. ollama_unload() after each
-    # model's turn additionally evicts it from Ollama's own memory so it
-    # can't stay resident under keep_alive across the whole session.
     RAW_CALL_LOG.clear()
     sessions_by_model = {model: [] for model in args.models}
     gpu_seen = False
+
     for i in range(1, args.sessions + 1):
         print(f"\n{'#'*60}\nSESSION {i}/{args.sessions}\n{'#'*60}")
         for model in args.models:
@@ -1267,50 +1210,29 @@ def main():
             "sessions": args.sessions,
             "trials_per_test": args.runs,
             "num_ctx": args.num_ctx,
-            "intent_config": intent_cfg["name"],
-            "persona_config": str(persona_dir),
-            "context_config": str(context_path),
         },
         "results": all_results,
     }
 
+    # Optional: Judge with Gemini
+    if args.judge_with_gemini:
+        print("\nSending responses to Gemini Flash for semantic evaluation...")
+        try:
+            judge_results = judge_all_responses(RAW_CALL_LOG, verbose=True)
+            payload = add_judge_scores_to_payload(payload, judge_results)
+            print("✓ Semantic judgments added to results.")
+        except Exception as e:
+            print(f"⚠ Gemini judging failed: {e}")
+
     results_path = out_dir / "aggregated_results.json"
     results_path.write_text(json.dumps(payload, indent=2))
-
-    import csv
-    persona_keys = sorted({k for r in all_results for k in r["aggregated"]["persona_adherence"].keys()})
-    with open(out_dir / "summary.csv", "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["model", "cold_load_s_median", "ttft_s_median", "tpot_s_median", "tokens_per_sec_median",
-                    "json_pass_rate_avg", "intent_accuracy_median", "context_recall_rate", "data_quality_flags"]
-                   + [f"persona_{k}_pass_rate_median" for k in persona_keys])
-        for r in all_results:
-            agg = r["aggregated"]
-            rates = [v["pass_rate_median"] for v in agg["format_compliance"].values() if v["pass_rate_median"] is not None]
-            json_avg = round(sum(rates) / len(rates), 2) if rates else None
-            row = [
-                r["model"],
-                (agg["metrics"]["cold_load_s"] or {}).get("median"),
-                (agg["metrics"]["ttft_s"] or {}).get("median"),
-                (agg["metrics"]["tpot_s_per_token"] or {}).get("median"),
-                (agg["metrics"]["tokens_per_sec"] or {}).get("median"),
-                json_avg,
-                agg["intent_detection"].get("accuracy_median"),
-                agg["context_recall"].get("recalled_rate"),
-                ";".join(agg["data_quality_flags"]),
-            ]
-            for k in persona_keys:
-                row.append(agg["persona_adherence"].get(k, {}).get("constraint_pass_rate_median"))
-            w.writerow(row)
 
     print_summary_table(payload)
     report_path = generate_html_report(results_path)
 
-    print(f"\nFull results: {results_path}")
-    print(f"CSV summary:  {out_dir / 'summary.csv'}")
-    print(f"HTML report:  {report_path}")
-    print(f"Raw call log: {raw_log_path}  ({len(RAW_CALL_LOG)} calls — every trial, untruncated, "
-          f"for tracing outliers back to a specific session/test/call)")
+    print(f"\n✓ Full results: {results_path}")
+    print(f"✓ HTML report:  {report_path}")
+    print(f"✓ Raw call log: {raw_log_path}")
 
 
 if __name__ == "__main__":

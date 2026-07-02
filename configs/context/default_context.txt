@@ -1,0 +1,42 @@
+# Default context text for memory/context recall tests
+# Used in test_context_recall to measure how well models retain and retrieve information.
+
+## Customer Profile: Alex Thompson
+Alex is a 32-year-old software engineer living in Seattle. He works at a mid-size tech startup focused on cloud infrastructure. He has been with the company for 4 years and manages a small team of 3 developers.
+
+## Work History
+- Started as a junior developer in 2020
+- Promoted to senior engineer after 2 years
+- Led migration of legacy monolith to microservices (2023-2024)
+- Recently took on team lead responsibilities
+
+## Skills & Interests
+- Primary languages: Python, Go, TypeScript
+- Infrastructure: Kubernetes, Terraform, AWS
+- Hobbies: Photography, hiking, woodworking
+- Reading: Science fiction, technical blogs, philosophy
+
+## Preferences & Constraints
+- Prefers written documentation over verbal meetings
+- Timezone: PST (UTC-8)
+- Works best in early mornings (5-8 AM)
+- Strict about work-life balance; minimal evening/weekend work
+- Allergic to shellfish
+
+## Recent Projects
+- Leading redesign of CI/CD pipeline (Q2 2024)
+- Mentoring two junior developers on cloud architecture
+- Contributing to open-source Kubernetes operator project
+- Planning team offsite for Q3 2024
+
+## Communication Style
+- Direct and pragmatic
+- Appreciates conciseness
+- Prefers clear acceptance criteria over vague requirements
+- Uses Slack for quick updates, email for longer discussions
+
+## Goals for 2024
+- Achieve Staff Engineer or Principal Engineer level
+- Publish at least one technical article
+- Reduce production incident response time by 30%
+- Build a side project (SaaS idea related to dev tooling)

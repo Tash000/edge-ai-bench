@@ -1,0 +1,48 @@
+# Default Intent Detection Configuration
+# Few-shot classification test: given utterances, predict intent labels
+
+name: "home_assistant_intents"
+
+system_prompt: |
+  You are an intent classifier for a smart home assistant.
+  For each user utterance, classify it into ONE of these categories:
+  - CONTROL: Direct commands to control devices (lights, thermostat, appliances)
+  - QUERY: Information requests (weather, time, status)
+  - SCHEDULE: Setting timers, alarms, reminders, calendar events
+  - MEDIA: Playing music, videos, podcasts
+  - PERSONAL: Personal assistant tasks (reminders, notes, shopping lists)
+  - HELP: Asking for help or explanations
+  - OTHER: Anything else
+  
+  Respond with ONLY the category name (e.g., "CONTROL"), nothing else.
+
+labels:
+  - CONTROL
+  - QUERY
+  - SCHEDULE
+  - MEDIA
+  - PERSONAL
+  - HELP
+  - OTHER
+
+test_cases:
+  - utterance: "Turn on the living room lights"
+    expected: "CONTROL"
+  - utterance: "What's the weather tomorrow?"
+    expected: "QUERY"
+  - utterance: "Set a timer for 10 minutes"
+    expected: "SCHEDULE"
+  - utterance: "Play my workout playlist"
+    expected: "MEDIA"
+  - utterance: "Add milk to my shopping list"
+    expected: "PERSONAL"
+  - utterance: "How do I reset my password?"
+    expected: "HELP"
+  - utterance: "Set the thermostat to 72 degrees"
+    expected: "CONTROL"
+  - utterance: "What time is it in Tokyo?"
+    expected: "QUERY"
+  - utterance: "Remind me to call mom at 3 PM"
+    expected: "SCHEDULE"
+  - utterance: "Play BBC news podcast"
+    expected: "MEDIA"
