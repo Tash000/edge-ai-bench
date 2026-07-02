@@ -990,6 +990,19 @@ def aggregate_sessions(sessions: list) -> dict:
         for k, v in adv_metrics.items()
     }
 
+    domain_qa_keys = sorted({k for s in sessions for k in s["domain_qa"].keys()})
+    domain_qa = {}
+    for key in domain_qa_keys:
+        rates = []
+        for s in sessions:
+            cat = s["domain_qa"].get(key)
+            if cat and cat.get("samples"):
+                rates.append(cat["n_ok"] / len(cat["samples"]))
+        domain_qa[key] = {
+            "success_rate_median": round(statistics.median(rates), 2) if rates else None,
+            "success_rate_per_session": [round(r, 2) for r in rates],
+        }
+
     persona_keys = sorted({k for s in sessions for k in s["persona_adherence"].keys()})
     persona_adherence = {}
     for key in persona_keys:
@@ -1028,6 +1041,7 @@ def aggregate_sessions(sessions: list) -> dict:
         "metrics": metrics,
         "format_compliance": format_compliance,
         "adversarial_robustness": adversarial_robustness,
+        "domain_qa": domain_qa,
         "persona_adherence": persona_adherence,
         "intent_detection": intent_detection,
         "context_recall": context_recall,

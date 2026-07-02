@@ -17,6 +17,7 @@ Cost estimate: ~$0.01-0.02 per full benchmark run (Gemini Flash is ~0.075/1M tok
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -24,7 +25,12 @@ try:
 except ImportError:
     genai = None
 
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
+# Fallback used only if configs/judge_context.yaml is missing or unparseable.
 DEFAULT_JUDGE_SYSTEM_PROMPT = """You are a semantic quality evaluator for local LLM responses in real-world use cases.
 Score each response 1-5 on:
 
@@ -49,6 +55,36 @@ For each response, return ONLY valid JSON (no prose):
   "summary": "<1-2 sentence assessment>"
 }
 """
+
+JUDGE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "configs" / "judge_context.yaml"
+_judge_config_cache = None
+
+
+def load_judge_config() -> dict:
+    """Load configs/judge_context.yaml (judge prompt, model, sampling, temperature).
+
+    Falls back to built-in defaults if the file or pyyaml is unavailable so the
+    module keeps working with no config present.
+    """
+    global _judge_config_cache
+    if _judge_config_cache is not None:
+        return _judge_config_cache
+
+    cfg = {
+        "judge_system_prompt": DEFAULT_JUDGE_SYSTEM_PROMPT,
+        "samples_per_test": 10,
+        "model": "gemini-2.0-flash",
+        "temperature": 0.3,
+    }
+    if yaml is not None and JUDGE_CONFIG_PATH.exists():
+        try:
+            raw = yaml.safe_load(JUDGE_CONFIG_PATH.read_text()) or {}
+            cfg.update({k: v for k, v in raw.items() if v is not None})
+        except Exception:
+            pass
+
+    _judge_config_cache = cfg
+    return cfg
 
 
 def validate_api_key() -> str:
@@ -86,19 +122,19 @@ def judge_batch_with_gemini(
     samples: list,
     system_prompt: str = None,
     judge_system: str = None,
-    model: str = "gemini-2.0-flash",
-    temperature: float = 0.3,
+    model: str = None,
+    temperature: float = None,
 ) -> dict:
     """
     Send a batch of responses to Gemini Flash for semantic scoring.
-    
+
     Args:
         test_name: Name of the test (e.g. "warm_latency", "persona_adherence")
         samples: List of dicts with keys: prompt, response_text
         system_prompt: Optional system prompt used for the test
-        judge_system: Optional custom judge system prompt (default: DEFAULT_JUDGE_SYSTEM_PROMPT)
-        model: Gemini model ID (default: gemini-2.0-flash, change to gemini-1.5-flash if needed)
-        temperature: Temperature for judge reasoning (default 0.3 for consistency)
+        judge_system: Optional custom judge system prompt (default: from configs/judge_context.yaml)
+        model: Gemini model ID (default: from configs/judge_context.yaml)
+        temperature: Temperature for judge reasoning (default: from configs/judge_context.yaml)
     
     Returns:
         dict with keys:
@@ -123,7 +159,10 @@ def judge_batch_with_gemini(
             "error": "No samples provided",
         }
     
-    judge_system = judge_system or DEFAULT_JUDGE_SYSTEM_PROMPT
+    cfg = load_judge_config()
+    judge_system = judge_system or cfg["judge_system_prompt"]
+    model = model or cfg["model"]
+    temperature = cfg["temperature"] if temperature is None else temperature
     judge_prompt = build_judge_prompt(test_name, samples, system_prompt)
     
     try:
@@ -184,79 +223,82 @@ def judge_batch_with_gemini(
 def judge_all_responses(
     raw_call_log: list,
     api_key: str = None,
-    sample_per_test: int = 10,
+    sample_per_test: int = None,
     judge_system: str = None,
     verbose: bool = True,
 ) -> dict:
     """
-    Judge all responses in the raw call log, grouped by test type.
+    Judge all responses in the raw call log, grouped by model then test type.
     
     Args:
         raw_call_log: List of call dicts from RAW_CALL_LOG
         api_key: Optional API key (default: read from GOOGLE_API_KEY env var)
-        sample_per_test: Max samples to judge per test (default 10, saves tokens)
+        sample_per_test: Max samples to judge per test (default: from configs/judge_context.yaml)
         judge_system: Optional custom judge system prompt
         verbose: Print progress (default True)
     
     Returns:
-        dict mapping test_name -> judge result dict
+        dict mapping model -> test_name -> judge result dict
     """
     if not raw_call_log:
         if verbose:
             print("⚠ No call log data to judge.")
         return {}
     
+    sample_per_test = sample_per_test or load_judge_config()["samples_per_test"]
     api_key = api_key or validate_api_key()
     genai.configure(api_key=api_key)
-    
-    # Group responses by test type
-    by_test = {}
+
+    # Group responses by model, then by test type — judging different models'
+    # responses together would blend their scores and misattribute them.
+    by_model_test = {}
     for call in raw_call_log:
+        model = call.get("model", "unknown")
         test_name = call.get("test", "unknown")
-        if test_name not in by_test:
-            by_test[test_name] = []
-        by_test[test_name].append(call)
-    
+        by_model_test.setdefault(model, {}).setdefault(test_name, []).append(call)
+
     judge_results = {}
     total_tokens = 0
-    
-    for test_name, calls in sorted(by_test.items()):
-        # Sample responses from this test (don't judge all, save tokens)
-        step = max(1, len(calls) // sample_per_test)
-        sampled = calls[::step][:sample_per_test]
-        
-        # Filter successful calls only
-        sampled = [c for c in sampled if c.get("ok")]
-        
-        if not sampled:
+
+    for model, by_test in sorted(by_model_test.items()):
+        judge_results[model] = {}
+        for test_name, calls in sorted(by_test.items()):
+            # Sample responses from this test (don't judge all, save tokens)
+            step = max(1, len(calls) // sample_per_test)
+            sampled = calls[::step][:sample_per_test]
+
+            # Filter successful calls only
+            sampled = [c for c in sampled if c.get("ok")]
+
+            if not sampled:
+                if verbose:
+                    print(f"  {model} / {test_name}: no successful responses to judge")
+                judge_results[model][test_name] = {
+                    "n_samples": 0,
+                    "error": "no successful responses",
+                }
+                continue
+
             if verbose:
-                print(f"  {test_name}: no successful responses to judge")
-            judge_results[test_name] = {
-                "n_samples": 0,
-                "error": "no successful responses",
-            }
-            continue
-        
-        if verbose:
-            print(f"  {test_name}: judging {len(sampled)} samples...")
-        
-        result = judge_batch_with_gemini(
-            test_name,
-            sampled,
-            system_prompt=sampled[0].get("system_prompt"),
-            judge_system=judge_system,
-        )
-        
-        judge_results[test_name] = result
-        
-        if result.get("usage"):
-            total_tokens += (
-                result["usage"].get("prompt_tokens", 0) +
-                result["usage"].get("output_tokens", 0)
+                print(f"  {model} / {test_name}: judging {len(sampled)} samples...")
+
+            result = judge_batch_with_gemini(
+                test_name,
+                sampled,
+                system_prompt=sampled[0].get("system_prompt"),
+                judge_system=judge_system,
             )
-        
-        if result.get("error") and verbose:
-            print(f"    ⚠ Error: {result['error']}")
+
+            judge_results[model][test_name] = result
+
+            if result.get("usage"):
+                total_tokens += (
+                    result["usage"].get("prompt_tokens", 0) +
+                    result["usage"].get("output_tokens", 0)
+                )
+
+            if result.get("error") and verbose:
+                print(f"    ⚠ Error: {result['error']}")
     
     if verbose:
         print(f"\nJudgment complete. Approximate tokens used: {total_tokens}")
@@ -268,14 +310,15 @@ def add_judge_scores_to_payload(payload: dict, judge_results: dict) -> dict:
     """
     Merge judge results into the aggregated_results.json payload.
     
-    Adds a "semantic_quality" section to each result's aggregated data.
+    Adds a "semantic_quality" section to each result's aggregated data,
+    scoped to that model only (judge_results is keyed by model -> test_name).
     """
     for result in payload.get("results", []):
         result["aggregated"]["semantic_quality"] = {
-            "judge_results": judge_results,
+            "judge_results": judge_results.get(result["model"], {}),
             "note": "Sampled responses scored by Gemini 2.0 Flash on relevance, coherence, usefulness, tone.",
         }
-    
+
     return payload
 
 
