@@ -1,0 +1,5 @@
+model,cold_load_s_median,ttft_s_median,tpot_s_median,tokens_per_sec_median,json_pass_rate_avg,intent_accuracy_median,context_recall_rate,data_quality_flags,persona_generic_assistant_pass_rate_median
+llama3.2:1b,3.418,0.4845,0.0986,9.3314,0.67,0.89,1.0,high_variance:cold_load_s(179.0%);swap_active_during_test,1.0
+llama3.2:3b,6.349,0.83,0.155,6.0392,1.0,0.89,1.0,high_variance:cold_load_s(101.1%);swap_active_during_test,1.0
+qwen2.5:1.5b,3.744,0.5171,0.0856,10.1633,0.67,0.89,1.0,high_variance:cold_load_s(93.6%);swap_active_during_test,0.75
+qwen:latest,5.292,0.8469,0.2259,4.0531,0.33,0.67,1.0,high_variance:cold_load_s(111.7%);swap_active_during_test,0.5

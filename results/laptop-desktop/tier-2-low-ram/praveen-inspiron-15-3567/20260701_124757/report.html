@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>edge-ai-bench report — praveen-Inspiron-15-3567</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background:#fafafa; }
+  h1 { font-size: 1.6rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 2px solid #eee; padding-bottom: .3rem; }
+  h3 { font-size: 1rem; margin-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }
+  td, th { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: .9rem; }
+  th { background: #f0f2f5; }
+  .hw-card table td:first-child { font-weight: 600; width: 140px; color:#555; }
+  .banner { background: #fff4e5; border: 1px solid #f0b429; padding: .8rem 1rem; border-radius: 6px; margin: 1rem 0; }
+  .chart { margin-bottom: 1.2rem; }
+  .muted { color: #888; }
+  .footer { color: #888; font-size: .8rem; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 1rem; }
+</style></head>
+<body>
+  <h1>edge-ai-bench report</h1>
+  <p>Generated 2026-07-01T12:47:58 &middot; schema v1.0
+     &middot; benchmark v1.0 &middot; submitted by Tash000</p>
+  <div class="banner">⚠ Data-quality flags present<ul><li>high_variance:cold_load_s(124.1%)</li><li>high_variance:cold_load_s(30.0%)</li><li>swap_active_during_test</li></ul></div>
+  <div class="hw-card"><h2>Hardware</h2><table>
+      <tr><td>Device</td><td>praveen-Inspiron-15-3567 (laptop_desktop)</td></tr>
+      <tr><td>CPU</td><td>Intel(R) Core(TM) i3-7100U CPU @ 2.40GHz (2C / 4T)</td></tr>
+      <tr><td>RAM</td><td>7.62 GB (swap used at test time: 1.89 GB)</td></tr>
+      <tr><td>GPU</td><td>Intel Corporation HD Graphics 620 (rev 02)</td></tr>
+      <tr><td>OS</td><td>Linux 6.8.0-124-generic</td></tr>
+      <tr><td>Ollama</td><td>ollama version is 0.15.5</td></tr>
+      <tr><td>Power source</td><td>ac</td></tr>
+    </table></div>
+  <h2>Key findings</h2>
+  <ul><li>Fastest decode throughput: <b>qwen2.5:1.5b</b> at 10.0 tok/s.</li><li>Fastest cold load: <b>llama3.2:1b</b> at 4.0s.</li><li>Most reliable JSON/structured-output compliance: <b>llama3.2:3b</b> at 100%.</li><li>⚠ <b>qwen:latest</b> passed only 33% of JSON-format tests — not recommended where strict parsing is required.</li><li>Best intent-detection accuracy: <b>llama3.2:1b</b> at 89%.</li><li>Overall recommended pick (heuristic score — speed 35%, JSON compliance 30%, intent accuracy 20%, cold load 15%): <b>qwen2.5:1.5b</b>.</li><li>⚠ One or more models have data-quality flags (see banner above) — treat those numbers as provisional.</li></ul>
+  <h2>Charts</h2>
+  <div class="chart"><h3>Cold load time (s, lower is better)</h3><svg width="560" height="164" viewBox="0 0 560 164" xmlns="http://www.w3.org/2000/svg"><text x="0" y="28.0" font-size="13" fill="#333">llama3.2:1b</text><rect x="150" y="10" width="22.1" height="26" rx="4" fill="#4f8ef7"/><text x="180.1" y="28.0" font-size="12" fill="#111">4.03s</text><text x="0" y="64.0" font-size="13" fill="#333">llama3.2:3b</text><rect x="150" y="46" width="370.0" height="26" rx="4" fill="#4f8ef7"/><text x="528.0" y="64.0" font-size="12" fill="#111">67.39s</text><text x="0" y="100.0" font-size="13" fill="#333">qwen2.5:1.5b</text><rect x="150" y="82" width="138.6" height="26" rx="4" fill="#4f8ef7"/><text x="296.6" y="100.0" font-size="12" fill="#111">25.25s</text><text x="0" y="136.0" font-size="13" fill="#333">qwen:latest</text><rect x="150" y="118" width="274.3" height="26" rx="4" fill="#4f8ef7"/><text x="432.3" y="136.0" font-size="12" fill="#111">49.97s</text></svg></div><div class="chart"><h3>TTFT (s, lower is better)</h3><svg width="560" height="164" viewBox="0 0 560 164" xmlns="http://www.w3.org/2000/svg"><text x="0" y="28.0" font-size="13" fill="#333">llama3.2:1b</text><rect x="150" y="10" width="213.5" height="26" rx="4" fill="#4f8ef7"/><text x="371.5" y="28.0" font-size="12" fill="#111">0.51s</text><text x="0" y="64.0" font-size="13" fill="#333">llama3.2:3b</text><rect x="150" y="46" width="370.0" height="26" rx="4" fill="#4f8ef7"/><text x="528.0" y="64.0" font-size="12" fill="#111">0.89s</text><text x="0" y="100.0" font-size="13" fill="#333">qwen2.5:1.5b</text><rect x="150" y="82" width="220.5" height="26" rx="4" fill="#4f8ef7"/><text x="378.5" y="100.0" font-size="12" fill="#111">0.53s</text><text x="0" y="136.0" font-size="13" fill="#333">qwen:latest</text><rect x="150" y="118" width="360.3" height="26" rx="4" fill="#4f8ef7"/><text x="518.3" y="136.0" font-size="12" fill="#111">0.86s</text></svg></div><div class="chart"><h3>Decode throughput (tok/s, higher is better)</h3><svg width="560" height="164" viewBox="0 0 560 164" xmlns="http://www.w3.org/2000/svg"><text x="0" y="28.0" font-size="13" fill="#333">llama3.2:1b</text><rect x="150" y="10" width="315.8" height="26" rx="4" fill="#4f8ef7"/><text x="473.8" y="28.0" font-size="12" fill="#111">8.6 tok/s</text><text x="0" y="64.0" font-size="13" fill="#333">llama3.2:3b</text><rect x="150" y="46" width="219.5" height="26" rx="4" fill="#4f8ef7"/><text x="377.5" y="64.0" font-size="12" fill="#111">6.0 tok/s</text><text x="0" y="100.0" font-size="13" fill="#333">qwen2.5:1.5b</text><rect x="150" y="82" width="370.0" height="26" rx="4" fill="#4f8ef7"/><text x="528.0" y="100.0" font-size="12" fill="#111">10.0 tok/s</text><text x="0" y="136.0" font-size="13" fill="#333">qwen:latest</text><rect x="150" y="118" width="147.9" height="26" rx="4" fill="#4f8ef7"/><text x="305.9" y="136.0" font-size="12" fill="#111">4.0 tok/s</text></svg></div><div class="chart"><h3>JSON format compliance (%, higher is better)</h3><svg width="560" height="164" viewBox="0 0 560 164" xmlns="http://www.w3.org/2000/svg"><text x="0" y="28.0" font-size="13" fill="#333">llama3.2:1b</text><rect x="150" y="10" width="246.8" height="26" rx="4" fill="#4f8ef7"/><text x="404.8" y="28.0" font-size="12" fill="#111">67%</text><text x="0" y="64.0" font-size="13" fill="#333">llama3.2:3b</text><rect x="150" y="46" width="370.0" height="26" rx="4" fill="#4f8ef7"/><text x="528.0" y="64.0" font-size="12" fill="#111">100%</text><text x="0" y="100.0" font-size="13" fill="#333">qwen2.5:1.5b</text><rect x="150" y="82" width="246.8" height="26" rx="4" fill="#4f8ef7"/><text x="404.8" y="100.0" font-size="12" fill="#111">67%</text><text x="0" y="136.0" font-size="13" fill="#333">qwen:latest</text><rect x="150" y="118" width="123.2" height="26" rx="4" fill="#4f8ef7"/><text x="281.2" y="136.0" font-size="12" fill="#111">33%</text></svg></div><div class="chart"><h3>Intent detection accuracy (%, higher is better)</h3><svg width="560" height="164" viewBox="0 0 560 164" xmlns="http://www.w3.org/2000/svg"><text x="0" y="28.0" font-size="13" fill="#333">llama3.2:1b</text><rect x="150" y="10" width="370.0" height="26" rx="4" fill="#4f8ef7"/><text x="528.0" y="28.0" font-size="12" fill="#111">89%</text><text x="0" y="64.0" font-size="13" fill="#333">llama3.2:3b</text><rect x="150" y="46" width="370.0" height="26" rx="4" fill="#4f8ef7"/><text x="528.0" y="64.0" font-size="12" fill="#111">89%</text><text x="0" y="100.0" font-size="13" fill="#333">qwen2.5:1.5b</text><rect x="150" y="82" width="370.0" height="26" rx="4" fill="#4f8ef7"/><text x="528.0" y="100.0" font-size="12" fill="#111">89%</text><text x="0" y="136.0" font-size="13" fill="#333">qwen:latest</text><rect x="150" y="118" width="278.5" height="26" rx="4" fill="#4f8ef7"/><text x="436.5" y="136.0" font-size="12" fill="#111">67%</text></svg></div>
+  <h2>Full results (median across 3 sessions)</h2>
+  <table>
+    <tr><th>Model</th><th>Cold load (s)</th><th>TTFT (s)</th><th>TPOT (ms/tok)</th><th>Tok/s</th>
+        <th>JSON pass%</th><th>Intent acc</th><th>Recall</th><th>Data-quality flags</th></tr>
+    <tr><td>llama3.2:1b</td><td>4.031</td><td>0.5114</td><td>109.1</td><td>8.6</td><td>66.7%</td><td>89%</td><td>100%</td><td>high_variance:cold_load_s(124.1%), swap_active_during_test</td></tr><tr><td>llama3.2:3b</td><td>67.393</td><td>0.8861</td><td>157.2</td><td>6.0</td><td>100.0%</td><td>89%</td><td>100%</td><td>swap_active_during_test</td></tr><tr><td>qwen2.5:1.5b</td><td>25.245</td><td>0.528</td><td>85.9</td><td>10.0</td><td>66.7%</td><td>89%</td><td>100%</td><td>high_variance:cold_load_s(30.0%), swap_active_during_test</td></tr><tr><td>qwen:latest</td><td>49.969</td><td>0.8628</td><td>227.8</td><td>4.0</td><td>33.3%</td><td>67%</td><td>100%</td><td>swap_active_during_test</td></tr>
+  </table>
+  <div class="footer">
+    Lower is better: cold load, TTFT, TPOT. Higher is better: tok/s, JSON pass%, intent accuracy, recall.
+    This is a heuristic community benchmark, not a certified evaluation — see docs/BENCHMARK_METHODOLOGY.md.
+  </div>
+</body></html>

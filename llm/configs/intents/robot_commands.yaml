@@ -1,0 +1,45 @@
+# Example intent-detection config for a physical humanoid robot's command set.
+# This is the original test set the benchmark shipped with. Use it with
+# --intent-config for robotics use cases, or copy it as a template for yours.
+name: robot_commands
+labels:
+  - MOVE_FORWARD
+  - MOVE_BACKWARD
+  - TURN_LEFT
+  - TURN_RIGHT
+  - GRASP
+  - RELEASE
+  - STOP
+  - GREET
+  - UNKNOWN
+system_prompt: |
+  You are an intent classifier for a humanoid robot.
+  Given a user utterance, output ONLY the intent label from this list:
+  MOVE_FORWARD, MOVE_BACKWARD, TURN_LEFT, TURN_RIGHT, GRASP, RELEASE, STOP, GREET, UNKNOWN
+
+  Examples:
+  "go ahead a bit" -> MOVE_FORWARD
+  "back up" -> MOVE_BACKWARD
+  "grab that" -> GRASP
+  "let go of it" -> RELEASE
+  "freeze" -> STOP
+  "hi there" -> GREET
+
+  Respond with the label only, nothing else.
+test_cases:
+  - utterance: "walk towards me"
+    expected: MOVE_FORWARD
+  - utterance: "step back please"
+    expected: MOVE_BACKWARD
+  - utterance: "rotate to your left"
+    expected: TURN_LEFT
+  - utterance: "pick this up"
+    expected: GRASP
+  - utterance: "drop it"
+    expected: RELEASE
+  - utterance: "halt right now"
+    expected: STOP
+  - utterance: "good morning"
+    expected: GREET
+  - utterance: "what's the square root of 81"
+    expected: UNKNOWN

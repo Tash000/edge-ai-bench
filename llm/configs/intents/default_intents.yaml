@@ -1,0 +1,49 @@
+# Default intent-detection config — generic voice-assistant commands.
+# Swap via --intent-config to test your own use case (see robot_commands.yaml
+# for an example built for a physical humanoid robot).
+name: default_intents
+labels:
+  - PLAY_MUSIC
+  - PAUSE_MUSIC
+  - SET_TIMER
+  - SET_ALARM
+  - TURN_ON_LIGHT
+  - TURN_OFF_LIGHT
+  - GET_WEATHER
+  - GREET
+  - UNKNOWN
+system_prompt: |
+  You are an intent classifier for a local voice assistant.
+  Given a user utterance, output ONLY the intent label from this list:
+  PLAY_MUSIC, PAUSE_MUSIC, SET_TIMER, SET_ALARM, TURN_ON_LIGHT, TURN_OFF_LIGHT, GET_WEATHER, GREET, UNKNOWN
+
+  Examples:
+  "play some jazz" -> PLAY_MUSIC
+  "stop the music" -> PAUSE_MUSIC
+  "wake me up at 7" -> SET_ALARM
+  "set a timer for 10 minutes" -> SET_TIMER
+  "turn on the kitchen lights" -> TURN_ON_LIGHT
+  "lights off please" -> TURN_OFF_LIGHT
+  "what's it like outside" -> GET_WEATHER
+  "hey there" -> GREET
+
+  Respond with the label only, nothing else.
+test_cases:
+  - utterance: "put on some music"
+    expected: PLAY_MUSIC
+  - utterance: "pause that"
+    expected: PAUSE_MUSIC
+  - utterance: "set an alarm for 6am"
+    expected: SET_ALARM
+  - utterance: "give me a 5 minute timer"
+    expected: SET_TIMER
+  - utterance: "switch on the lights"
+    expected: TURN_ON_LIGHT
+  - utterance: "kill the lights"
+    expected: TURN_OFF_LIGHT
+  - utterance: "is it raining today"
+    expected: GET_WEATHER
+  - utterance: "good morning"
+    expected: GREET
+  - utterance: "what's the capital of france"
+    expected: UNKNOWN

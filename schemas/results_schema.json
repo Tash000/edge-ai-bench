@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Tash000/edge-ai-bench/schemas/results_schema.json",
+  "title": "edge-ai-bench LLM aggregated results",
+  "description": "One file per benchmark submission. Produced by llm/llm_benchmark.py; validated by scripts/validate_results.py before a results PR is accepted.",
+  "type": "object",
+  "required": ["schema_version", "benchmark_version", "submitted_by", "submission_date", "hardware", "test_config", "results"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "benchmark_version": { "type": "string" },
+    "submitted_by": { "type": "string" },
+    "submission_date": { "type": "string", "format": "date" },
+    "hardware": {
+      "type": "object",
+      "required": [
+        "hostname", "cpu_model", "cpu_cores_physical", "cpu_threads_logical",
+        "ram_total_gb", "os", "device_class", "ollama_version", "power_source"
+      ],
+      "properties": {
+        "hostname": { "type": "string" },
+        "cpu_model": { "type": ["string", "null"] },
+        "cpu_cores_physical": { "type": ["integer", "null"] },
+        "cpu_threads_logical": { "type": ["integer", "null"] },
+        "ram_total_gb": { "type": ["number", "null"] },
+        "ram_available_gb": { "type": ["number", "null"] },
+        "swap_total_gb": { "type": ["number", "null"] },
+        "swap_used_gb": { "type": ["number", "null"] },
+        "os": { "type": "string" },
+        "os_release": { "type": "string" },
+        "os_version": { "type": "string" },
+        "machine_arch": { "type": "string" },
+        "device_class": { "type": "string", "enum": ["laptop_desktop", "edge_device"] },
+        "device_type": { "type": ["string", "null"] },
+        "gpu_model": { "type": ["string", "null"] },
+        "gpu_vram_gb": { "type": ["number", "null"] },
+        "ollama_version": { "type": ["string", "null"] },
+        "power_source": { "type": "string", "enum": ["ac", "battery", "unknown"] }
+      }
+    },
+    "test_config": {
+      "type": "object",
+      "required": ["models_tested", "sessions", "trials_per_test", "num_ctx", "intent_config", "persona_config", "context_config"],
+      "properties": {
+        "models_tested": { "type": "array", "items": { "type": "string" } },
+        "sessions": { "type": "integer", "minimum": 1 },
+        "trials_per_test": { "type": "integer", "minimum": 1 },
+        "num_ctx": { "type": "integer" },
+        "intent_config": { "type": "string" },
+        "persona_config": { "type": "string" },
+        "context_config": { "type": "string" }
+      }
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["model", "sessions_raw", "aggregated"],
+        "properties": {
+          "model": { "type": "string" },
+          "sessions_raw": { "type": "array" },
+          "aggregated": {
+            "type": "object",
+            "required": ["metrics", "format_compliance", "persona_adherence", "intent_detection", "context_recall", "resources", "data_quality_flags"],
+            "properties": {
+              "metrics": {
+                "type": "object",
+                "required": ["cold_load_s", "ttft_s", "tpot_s_per_token", "tokens_per_sec", "end_to_end_s"],
+                "additionalProperties": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "median": { "type": "number" },
+                    "mean": { "type": "number" },
+                    "stdev": { "type": "number" },
+                    "cv_pct": { "type": ["number", "null"] },
+                    "min": { "type": "number" },
+                    "max": { "type": "number" },
+                    "n": { "type": "integer" }
+                  }
+                }
+              },
+              "format_compliance": { "type": "object" },
+              "persona_adherence": { "type": "object" },
+              "intent_detection": {
+                "type": "object",
+                "required": ["config_name", "accuracy_median", "accuracy_per_session"]
+              },
+              "context_recall": {
+                "type": "object",
+                "required": ["recalled_rate", "per_session"]
+              },
+              "resources": {
+                "type": "object",
+                "required": ["vram_bytes_median", "ram_bytes_median", "gpu_accelerated"]
+              },
+              "data_quality_flags": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "e.g. insufficient_sessions:N_of_3_minimum, high_variance:<metric>(cv%), swap_active_during_test"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

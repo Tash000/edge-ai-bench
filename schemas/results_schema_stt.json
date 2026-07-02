@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Tash000/edge-ai-bench/schemas/results_schema_stt.json",
+  "title": "edge-ai-bench STT aggregated results",
+  "description": "Same philosophy as results_schema.json (hardware metadata + >=3 sessions + aggregation), applied to speech-to-text engines (Whisper, Vosk, ...).",
+  "type": "object",
+  "required": ["schema_version", "benchmark_version", "submitted_by", "submission_date", "hardware", "test_config", "results"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "benchmark_version": { "type": "string" },
+    "submitted_by": { "type": "string" },
+    "submission_date": { "type": "string", "format": "date" },
+    "hardware": { "$ref": "results_schema.json#/properties/hardware" },
+    "test_config": {
+      "type": "object",
+      "required": ["engines_tested", "sessions", "audio_set"],
+      "properties": {
+        "engines_tested": { "type": "array", "items": { "type": "string" } },
+        "sessions": { "type": "integer", "minimum": 1 },
+        "audio_set": { "type": "string" }
+      }
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["engine", "model", "sessions_raw", "aggregated"],
+        "properties": {
+          "engine": { "type": "string" },
+          "model": { "type": "string" },
+          "sessions_raw": { "type": "array" },
+          "aggregated": {
+            "type": "object",
+            "required": ["metrics", "data_quality_flags"],
+            "properties": {
+              "metrics": {
+                "type": "object",
+                "required": ["model_load_s", "rtf", "wer"],
+                "description": "rtf = processing_time / audio_duration (lower is better, <1.0 = faster than real-time). wer = word error rate (lower is better)."
+              },
+              "data_quality_flags": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

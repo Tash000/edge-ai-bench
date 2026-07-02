@@ -1,0 +1,38 @@
+name: Validate results submissions
+
+on:
+  pull_request:
+    paths:
+      - "results/**/*.json"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validator dependencies
+        run: pip install jsonschema
+
+      - name: Find changed results JSON files
+        id: changed
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'results/**/*.json' > changed_files.txt
+          cat changed_files.txt
+
+      - name: Validate changed results files
+        run: |
+          if [ -s changed_files.txt ]; then
+            python scripts/validate_results.py $(cat changed_files.txt)
+          else
+            echo "No results JSON files changed."
+          fi
+
+      - name: Check leaderboard is up to date
+        run: python scripts/generate_leaderboard.py --check

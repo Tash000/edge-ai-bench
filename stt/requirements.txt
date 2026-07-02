@@ -1,0 +1,4 @@
+openai-whisper   # for whisper_benchmark.py
+vosk             # for vosk_benchmark.py
+# optional, improves cross-platform RAM/battery detection accuracy:
+psutil>=5.9
