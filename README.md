@@ -54,10 +54,11 @@ category.
 
 | Model | Device | Tok/s (median) | Cold load | JSON pass% | Intent acc | Submitted by | Date | Flags |
 |---|---|---|---|---|---|---|---|---|
-| qwen2.5:1.5b | praveen-Inspiron-15-3567 | 10.0 tok/s | 25.2s | 67% | 89% | Tash000 | 2026-07-01 | high_variance:cold_load_s(30.0%), swap_active_during_test |
-| llama3.2:1b | praveen-Inspiron-15-3567 | 8.6 tok/s | 4.0s | 67% | 89% | Tash000 | 2026-07-01 | high_variance:cold_load_s(124.1%), swap_active_during_test |
-| llama3.2:3b | praveen-Inspiron-15-3567 | 6.0 tok/s | 67.4s | 100% | 89% | Tash000 | 2026-07-01 | swap_active_during_test |
-| qwen:latest | praveen-Inspiron-15-3567 | 4.0 tok/s | 50.0s | 33% | 67% | Tash000 | 2026-07-01 | swap_active_during_test |
+| qwen2.5:1.5b | praveen-Inspiron-15-3567 | 10.2 tok/s | 20.6s | 67% | 89% | Tash000 | 2026-07-02 | swap_active_during_test |
+| llama3.2:1b | praveen-Inspiron-15-3567 | 9.3 tok/s | 26.8s | 67% | 89% | Tash000 | 2026-07-02 | swap_active_during_test |
+| llama3.2:3b | praveen-Inspiron-15-3567 | 6.0 tok/s | 42.4s | 100% | 89% | Tash000 | 2026-07-02 | swap_active_during_test |
+| gemma2:2b | praveen-Inspiron-15-3567 | 5.3 tok/s | 18.3s | 100% | 89% | Tash000 | 2026-07-02 | swap_active_during_test |
+| qwen:latest | praveen-Inspiron-15-3567 | 4.0 tok/s | 45.6s | 33% | 67% | Tash000 | 2026-07-02 | swap_active_during_test |
 <!-- LEADERBOARD:END -->
 
 ## Contributing results
